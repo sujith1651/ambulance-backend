@@ -20,6 +20,8 @@ app.use(express.json());
 
 // ─── In-memory stores ─────────────────────────────────────────────────────────
 const JWT_SECRET = 'ambulance_secret_2025';
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyAkmOKwTgaJhJ84f4Cwmz5mJju-1zdsFT8';
+
 const drivers = new Map();       // email → { id, email, passwordHash, name }
 const activeAlerts = new Map();  // socketId → { driverName, latitude, longitude, routePolyline, hospitalName, timestamp }
 const publicUsers = new Map();   // socketId → { pushToken, latitude, longitude, isDriver: false }
@@ -120,6 +122,39 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', activeAlerts: activeAlerts.size, accidentReports: accidentReports.size }));
+
+// ─── Google Maps Proxy (to bypass Android API key restrictions) ───────────────
+app.get('/api/maps/places', async (req, res) => {
+    try {
+        const { latitude, longitude, radiusMetres } = req.query;
+        if (!latitude || !longitude) return res.status(400).json({ error: 'Missing coordinates' });
+
+        const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=${radiusMetres || 5000}&type=hospital&key=${GOOGLE_MAPS_API_KEY}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+        res.json(data);
+    } catch (e) {
+        console.error('Places Proxy Error:', e);
+        res.status(500).json({ error: 'Failed to fetch places' });
+    }
+});
+
+app.get('/api/maps/directions', async (req, res) => {
+    try {
+        const { originLat, originLng, destLat, destLng } = req.query;
+        if (!originLat || !originLng || !destLat || !destLng) return res.status(400).json({ error: 'Missing coordinates' });
+
+        const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&mode=driving&key=${GOOGLE_MAPS_API_KEY}`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+        res.json(data);
+    } catch (e) {
+        console.error('Directions Proxy Error:', e);
+        res.status(500).json({ error: 'Failed to fetch directions' });
+    }
+});
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
