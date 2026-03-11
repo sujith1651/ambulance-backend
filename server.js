@@ -20,7 +20,7 @@ app.use(express.json());
 
 // ─── In-memory stores ─────────────────────────────────────────────────────────
 const JWT_SECRET = 'ambulance_secret_2025';
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyAkmOKwTgaJhJ84f4Cwmz5mJju-1zdsFT8';
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || 'AIzaSyDehtJreZosPoaC6acYry6HJ9yn3L4rfWc';
 
 const drivers = new Map();       // email → { id, email, passwordHash, name }
 const activeAlerts = new Map();  // socketId → { driverName, latitude, longitude, routePolyline, hospitalName, timestamp }
