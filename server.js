@@ -306,9 +306,23 @@ io.on('connection', (socket) => {
     });
 });
 
+// ─── Body parser error handler (JSON instead of HTML) ─────────────────────────
+app.use((err, req, res, next) => {
+    if (err.type === 'entity.parse.failed') {
+        return res.status(400).json({ error: 'Invalid JSON in request body' });
+    }
+    next(err);
+});
+
 // ─── Start server ─────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀  Server running on port ${PORT}`);
-    console.log(`📡  Health: http://localhost:${PORT}/api/health\n`);
+    console.log('\n🚀  Server running on port ' + PORT);
+    console.log('📡  Health: http://localhost:' + PORT + '/api/health\n');
+
+    // Self-ping every 5 minutes to prevent Railway free tier from sleeping
+    const selfUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+        ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN + '/api/health'
+        : 'http://localhost:' + PORT + '/api/health';
+    setInterval(() => { fetch(selfUrl).catch(() => {}); }, 5 * 60 * 1000);
 });
