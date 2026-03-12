@@ -123,17 +123,28 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', activeAlerts: activeAlerts.size, accidentReports: accidentReports.size }));
 
-// ─── Google Maps Proxy (to bypass Android API key restrictions) ───────────────
+// ─── Free Maps Proxy (OpenStreetMap Overpass + OSRM — no billing) ────────────
 app.get('/api/maps/places', async (req, res) => {
     try {
         const { latitude, longitude, radiusMetres } = req.query;
         if (!latitude || !longitude) return res.status(400).json({ error: 'Missing coordinates' });
 
-        const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=${radiusMetres || 5000}&type=hospital&key=${GOOGLE_MAPS_API_KEY}`;
+        const radius = radiusMetres || 5000;
+        const overpassQuery = `[out:json][timeout:25];(node["amenity"~"hospital|clinic"](around:${radius},${latitude},${longitude});way["amenity"~"hospital|clinic"](around:${radius},${latitude},${longitude}););out center;`;
+        const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
 
-        const response = await fetch(url);
+        const response = await fetch(url, { headers: { 'User-Agent': 'AmbulanceApp/1.0' } });
         const data = await response.json();
-        res.json(data);
+
+        const results = (data.elements || []).map(el => {
+            const lat = el.lat ?? el.center?.lat;
+            const lng = el.lon ?? el.center?.lon;
+            const name = el.tags?.name || el.tags?.['name:en'] || 'Hospital';
+            const address = [el.tags?.['addr:street'], el.tags?.['addr:city']].filter(Boolean).join(', ') || '';
+            return { place_id: String(el.id), name, vicinity: address, geometry: { location: { lat, lng } } };
+        }).filter(r => r.geometry.location.lat != null);
+
+        res.json({ status: 'OK', results });
     } catch (e) {
         console.error('Places Proxy Error:', e);
         res.status(500).json({ error: 'Failed to fetch places' });
@@ -145,11 +156,20 @@ app.get('/api/maps/directions', async (req, res) => {
         const { originLat, originLng, destLat, destLng } = req.query;
         if (!originLat || !originLng || !destLat || !destLng) return res.status(400).json({ error: 'Missing coordinates' });
 
-        const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&mode=driving&key=${GOOGLE_MAPS_API_KEY}`;
-
-        const response = await fetch(url);
+        const url = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson`;
+        const response = await fetch(url, { headers: { 'User-Agent': 'AmbulanceApp/1.0' } });
         const data = await response.json();
-        res.json(data);
+
+        if (data.code !== 'Ok' || !data.routes?.length) {
+            return res.status(400).json({ error: 'No route found' });
+        }
+
+        const route = data.routes[0];
+        const polyline = route.geometry.coordinates.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+        const durationText = `${Math.round(route.duration / 60)} min`;
+        const distanceText = `${(route.distance / 1000).toFixed(1)} km`;
+
+        res.json({ status: 'OK', polyline, durationText, distanceText });
     } catch (e) {
         console.error('Directions Proxy Error:', e);
         res.status(500).json({ error: 'Failed to fetch directions' });
